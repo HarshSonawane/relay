@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay",
+  "main": "src/relay/main.py",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": ["python_workers"]
+}
