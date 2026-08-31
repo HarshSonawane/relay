@@ -14,11 +14,37 @@ from relay.linear.client import LinearClient
 
 def _binding(env: Any, name: str) -> str | None:
     """Read a Worker binding / attribute, returning None if missing or empty."""
-    value = getattr(env, name, None)
+    value: Any = None
+    try:
+        value = getattr(env, name, None)
+    except Exception:
+        value = None
+    if value is None and hasattr(env, "get"):
+        try:
+            value = env.get(name)
+        except Exception:
+            value = None
+    if value is None:
+        try:
+            value = env[name]
+        except Exception:
+            value = None
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _worker_env(request: Request) -> Any | None:
+    """Return the Cloudflare Worker env proxy if this request is on Workers."""
+    env = request.scope.get("env")
+    if env is not None:
+        return env
+    # Some ASGI bridges nest env under state.
+    state = request.scope.get("state")
+    if isinstance(state, dict):
+        return state.get("env")
+    return None
 
 
 def get_settings(request: Request) -> Settings:
@@ -27,8 +53,8 @@ def get_settings(request: Request) -> Settings:
     Must stay request-scoped — never call this at module import so secrets
     are not baked into the Cloudflare memory snapshot on deploy.
     """
-    env = request.scope.get("env")
-    if env is not None and _binding(env, "LINEAR_API_KEY"):
+    env = _worker_env(request)
+    if env is not None:
         data: dict[str, Any] = {
             "linear_api_key": _binding(env, "LINEAR_API_KEY"),
             "linear_team_id": _binding(env, "LINEAR_TEAM_ID"),

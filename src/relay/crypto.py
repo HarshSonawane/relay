@@ -10,12 +10,22 @@ import hashlib
 import hmac
 import logging
 import time
+from typing import Any
 
 from relay.exceptions import SignatureError
 
 logger = logging.getLogger("relay.crypto")
 
 _SLACK_MAX_AGE_SECONDS = 60 * 5
+
+
+def _as_u8(data: bytes) -> Any:
+    """Copy Python bytes into a JS Uint8Array for Web Crypto."""
+    from js import Uint8Array  # type: ignore[import-not-found]
+
+    arr = Uint8Array.new(len(data))
+    arr.assign(data)
+    return arr
 
 
 async def verify_discord_ed25519(
@@ -29,25 +39,24 @@ async def verify_discord_ed25519(
 
     Raises SignatureError on failure.
     """
+    if not signature_hex or not timestamp or not public_key_hex:
+        raise SignatureError("Missing Discord signature headers or public key")
+
     try:
-        from js import Buffer, crypto  # type: ignore[import-not-found]
+        from js import crypto
     except ImportError:
-        # Local unit tests / non-Worker environments.
         raise SignatureError(
             "Discord Ed25519 verification requires the Workers Web Crypto API"
         ) from None
 
-    # Buffer.from is a JS method; `from` is a Python keyword, so use getattr.
-    buffer_from = getattr(Buffer, "from")
-
     try:
-        public_key_bytes = bytes.fromhex(public_key_hex)
-        signature_bytes = bytes.fromhex(signature_hex)
+        public_key_bytes = bytes.fromhex(public_key_hex.strip())
+        signature_bytes = bytes.fromhex(signature_hex.strip())
         message = timestamp.encode("utf-8") + body
 
         key = await crypto.subtle.importKey(
             "raw",
-            buffer_from(public_key_bytes),
+            _as_u8(public_key_bytes),
             {"name": "Ed25519"},
             False,
             ["verify"],
@@ -55,9 +64,11 @@ async def verify_discord_ed25519(
         valid = await crypto.subtle.verify(
             "Ed25519",
             key,
-            buffer_from(signature_bytes),
-            buffer_from(message),
+            _as_u8(signature_bytes),
+            _as_u8(message),
         )
+    except SignatureError:
+        raise
     except Exception as exc:
         logger.warning("Discord signature verification error: %s", type(exc).__name__)
         raise SignatureError("Invalid Discord signature") from exc

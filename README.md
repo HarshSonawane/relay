@@ -89,16 +89,25 @@ Wrangler prints a URL like `https://relay.<account>.workers.dev`.
 ## Connect Discord
 
 1. Create an application at [Discord Developer Portal](https://discord.com/developers/applications).
-2. Copy the **Public Key** → `DISCORD_PUBLIC_KEY`.
-3. Set **Interactions Endpoint URL** to `https://<your-worker>/hooks/discord`.
-4. Create a Bot, copy the token → `DISCORD_BOT_TOKEN`, and note the Application ID.
-5. Register the slash command (local, once):
+2. Copy the **Public Key** → set Worker secret `DISCORD_PUBLIC_KEY`
+   (Dashboard → Worker → Settings → Variables → Add secret, **or**
+   `npx wrangler secret put DISCORD_PUBLIC_KEY`).
+3. Also set secrets `LINEAR_API_KEY` and `LINEAR_TEAM_ID` (required for every request).
+4. Set **Interactions Endpoint URL** to exactly:
+
+   `https://<your-worker>.workers.dev/hooks/discord`
+
+   Discord sends a signed `PING`; Relay must verify Ed25519 and reply `{"type":1}`.
+   If validation fails, usually either the URL path is wrong or `DISCORD_PUBLIC_KEY`
+   is missing/wrong on the Worker (not only in local `.env`).
+5. Create a Bot, copy the token → `DISCORD_BOT_TOKEN`, and note the Application ID.
+6. Register the slash command (local, once):
 
    ```bash
    uv run python scripts/register_discord.py
    ```
 
-6. Invite the bot to your server (OAuth2 → `applications.commands` scope).
+7. Invite the bot to your server (OAuth2 → `applications.commands` scope).
 
 Usage: `/issue title:Fix login description:users cannot SSO`
 
