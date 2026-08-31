@@ -69,8 +69,21 @@ uv run pywrangler dev      # http://localhost:8787
 | `GROQ_MODEL`             | no       | Worker (default `llama-3.1-8b-instant`) |
 
 Never commit `.env` or `.dev.vars`. Production uses the **same variable names**
-via `wrangler secret put` — the Worker reads bindings from `request.scope["env"]`
-at request time (not at import, so secrets are not snapshotted into the deploy).
+via **Worker runtime** secrets (Dashboard → Worker → **Settings → Variables and Secrets**,
+under **Runtime** — **not** Settings → Builds → Variables). Build secrets are only
+available during CI and are invisible to `/hooks/*` at request time.
+
+```bash
+npx wrangler secret put DISCORD_PUBLIC_KEY
+npx wrangler secret list   # confirm runtime secrets
+```
+
+Check what the live Worker can see:
+
+```bash
+curl https://<your-worker>.workers.dev/health
+# {"status":"ok","adapters":{"discord":true,"slack":false},"linear":true,"groq":true}
+```
 
 ## Deploy
 

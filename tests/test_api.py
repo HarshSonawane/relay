@@ -52,7 +52,11 @@ def client() -> TestClient:
 def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["adapters"]["discord"] is True
+    assert body["adapters"]["slack"] is True
+    assert body["linear"] is True
 
 
 def test_hooks_unknown_provider(client: TestClient) -> None:
