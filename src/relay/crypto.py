@@ -20,12 +20,25 @@ _SLACK_MAX_AGE_SECONDS = 60 * 5
 
 
 def _as_u8(data: bytes) -> Any:
-    """Copy Python bytes into a JS Uint8Array for Web Crypto."""
+    """Copy Python bytes into a JS buffer Web Crypto accepts."""
     from js import Uint8Array  # type: ignore[import-not-found]
 
-    arr = Uint8Array.new(len(data))
-    arr.assign(data)
-    return arr
+    # Prefer assign() into a pre-sized TypedArray (works well in Pyodide).
+    try:
+        arr = Uint8Array.new(len(data))
+        arr.assign(data)
+        return arr
+    except Exception:
+        logger.debug("Uint8Array.assign failed; trying list constructor")
+
+    try:
+        return Uint8Array.new(list(data))
+    except Exception:
+        logger.debug("Uint8Array(list) failed; trying pyodide.ffi.to_js")
+
+    from pyodide.ffi import to_js
+
+    return to_js(data)
 
 
 async def verify_discord_ed25519(

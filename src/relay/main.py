@@ -76,8 +76,8 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
 app = create_app()
 
-# Cloudflare Python Workers ASGI entrypoint.
-# Imported lazily so unit tests do not require the workers SDK.
+# ASGI entrypoint helper kept for local imports/tests.
+# Production Workers use ``src/main.py`` ``Default(WorkerEntrypoint)``.
 Default: Any
 try:
     from workers import asgi

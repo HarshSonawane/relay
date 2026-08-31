@@ -32,3 +32,10 @@ def test_secret_str_hidden_in_repr() -> None:
         }
     )
     assert "super-secret" not in repr(settings)
+
+
+def test_settings_without_linear_still_loads() -> None:
+    settings = Settings.model_validate({"discord_public_key": "abc" * 10})
+    assert settings.discord_enabled is True
+    assert settings.linear_api_key is None
+

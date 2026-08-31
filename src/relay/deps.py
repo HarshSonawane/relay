@@ -67,7 +67,7 @@ def get_settings(request: Request) -> Settings:
             data["groq_model"] = model
         return Settings.model_validate(data)
     # Loads from process env / `.env` (local scripts & tests).
-    return Settings()  # type: ignore[call-arg]
+    return Settings()
 
 
 def get_http_client(request: Request) -> httpx.AsyncClient:

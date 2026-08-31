@@ -14,6 +14,10 @@ class Settings(BaseSettings):
 
     Env var names match field names uppercased (LINEAR_API_KEY, etc.).
     Secrets use SecretStr so they do not appear in logs or ``repr()``.
+
+    Linear keys are optional at load time so Discord PING verification can
+    succeed even if Linear is not configured yet; issue creation still requires
+    them (see ``require_linear``).
     """
 
     model_config = SettingsConfigDict(
@@ -23,8 +27,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    linear_api_key: SecretStr
-    linear_team_id: str
+    linear_api_key: SecretStr | None = None
+    linear_team_id: str | None = None
 
     discord_public_key: str | None = None
     discord_application_id: str | None = None
@@ -45,3 +49,12 @@ class Settings(BaseSettings):
     @property
     def groq_enabled(self) -> bool:
         return self.groq_api_key is not None
+
+    def require_linear(self) -> None:
+        """Raise if Linear credentials are missing (call before API use)."""
+        if self.linear_api_key is None or not self.linear_team_id:
+            from relay.exceptions import LinearError
+
+            raise LinearError(
+                "LINEAR_API_KEY and LINEAR_TEAM_ID must be set as Worker secrets"
+            )

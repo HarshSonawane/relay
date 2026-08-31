@@ -35,6 +35,10 @@ class LinearClient:
         self._settings = settings
 
     async def create_issue(self, draft: IssueDraft) -> CreatedIssue:
+        self._settings.require_linear()
+        assert self._settings.linear_api_key is not None
+        assert self._settings.linear_team_id is not None
+
         headers = {
             "Authorization": self._settings.linear_api_key.get_secret_value(),
             "Content-Type": "application/json",
