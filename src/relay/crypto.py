@@ -18,27 +18,53 @@ logger = logging.getLogger("relay.crypto")
 
 _SLACK_MAX_AGE_SECONDS = 60 * 5
 
+# JS verifier — keeps TypedArrays and Promises entirely on the JS side.
+_DISCORD_VERIFY_JS = """
+return (async () => {
+  const hexToU8 = (hex) => {
+    const clean = String(hex).trim().replace(/^0x/i, "");
+    if (clean.length % 2 !== 0) {
+      throw new Error("invalid hex length");
+    }
+    const out = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = parseInt(clean.substr(i * 2, 2), 16);
+    }
+    return out;
+  };
 
-def _as_u8(data: bytes) -> Any:
-    """Copy Python bytes into a JS buffer Web Crypto accepts."""
-    from js import Uint8Array  # type: ignore[import-not-found]
+  const publicKey = hexToU8(publicKeyHex);
+  const signature = hexToU8(signatureHex);
+  const body = Uint8Array.from(bodyBytes);
+  const tsBytes = new TextEncoder().encode(String(timestamp));
+  const message = new Uint8Array(tsBytes.length + body.length);
+  message.set(tsBytes, 0);
+  message.set(body, tsBytes.length);
 
-    # Prefer assign() into a pre-sized TypedArray (works well in Pyodide).
-    try:
-        arr = Uint8Array.new(len(data))
-        arr.assign(data)
-        return arr
-    except Exception:
-        logger.debug("Uint8Array.assign failed; trying list constructor")
+  const key = await crypto.subtle.importKey(
+    "raw",
+    publicKey,
+    { name: "Ed25519" },
+    false,
+    ["verify"]
+  );
+  return await crypto.subtle.verify("Ed25519", key, signature, message);
+})()
+"""
 
-    try:
-        return Uint8Array.new(list(data))
-    except Exception:
-        logger.debug("Uint8Array(list) failed; trying pyodide.ffi.to_js")
 
-    from pyodide.ffi import to_js
-
-    return to_js(data)
+def _js_truthy(value: Any) -> bool:
+    """Convert a JS/Pyodide value to a real Python bool."""
+    if value is True or value is False:
+        return value
+    if value == True:  # noqa: E712 — JsProxy equality
+        return True
+    if value == False:  # noqa: E712
+        return False
+    to_py = getattr(value, "to_py", None)
+    if callable(to_py):
+        return bool(to_py())
+    return bool(value)
 
 
 async def verify_discord_ed25519(
@@ -56,29 +82,26 @@ async def verify_discord_ed25519(
         raise SignatureError("Missing Discord signature headers or public key")
 
     try:
-        from js import crypto
+        from js import Function  # type: ignore[import-not-found]
     except ImportError:
         raise SignatureError(
             "Discord Ed25519 verification requires the Workers Web Crypto API"
         ) from None
 
     try:
-        public_key_bytes = bytes.fromhex(public_key_hex.strip())
-        signature_bytes = bytes.fromhex(signature_hex.strip())
-        message = timestamp.encode("utf-8") + body
-
-        key = await crypto.subtle.importKey(
-            "raw",
-            _as_u8(public_key_bytes),
-            {"name": "Ed25519"},
-            False,
-            ["verify"],
+        # body as a plain list of ints — JS builds Uint8Array (avoids FFI buffer bugs)
+        verify = Function.new(
+            "publicKeyHex",
+            "signatureHex",
+            "timestamp",
+            "bodyBytes",
+            _DISCORD_VERIFY_JS,
         )
-        valid = await crypto.subtle.verify(
-            "Ed25519",
-            key,
-            _as_u8(signature_bytes),
-            _as_u8(message),
+        result = await verify(
+            public_key_hex.strip(),
+            signature_hex.strip(),
+            timestamp,
+            list(body),
         )
     except SignatureError:
         raise
@@ -86,7 +109,7 @@ async def verify_discord_ed25519(
         logger.warning("Discord signature verification error: %s", type(exc).__name__)
         raise SignatureError("Invalid Discord signature") from exc
 
-    if not valid:
+    if not _js_truthy(result):
         raise SignatureError("Invalid Discord signature")
 
 

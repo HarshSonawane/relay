@@ -65,7 +65,7 @@ def get_settings(request: Request) -> Settings:
         model = _binding(env, "GROQ_MODEL")
         if model:
             data["groq_model"] = model
-        return Settings.model_validate(data)
+        return Settings.from_worker_bindings(**data)
     # Loads from process env / `.env` (local scripts & tests).
     return Settings()
 

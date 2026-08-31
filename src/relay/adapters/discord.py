@@ -44,12 +44,17 @@ class DiscordAdapter:
         if not public_key:
             raise SignatureError("Discord public key not configured")
 
-        await verify_discord_ed25519(
-            body=body,
-            signature_hex=signature,
-            timestamp=timestamp,
-            public_key_hex=public_key,
-        )
+        # Discord expects HTTP 401 with empty body on bad signatures during
+        # endpoint validation — return Response(401) rather than JSON detail.
+        try:
+            await verify_discord_ed25519(
+                body=body,
+                signature_hex=signature,
+                timestamp=timestamp,
+                public_key_hex=public_key,
+            )
+        except SignatureError:
+            return Response(status_code=401)
 
         payload: dict[str, Any] = json.loads(body)
         interaction_type = payload.get("type")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,15 +42,19 @@ class Settings(BaseSettings):
 
     @property
     def discord_enabled(self) -> bool:
-        return bool(self.discord_public_key)
+        return bool(self.discord_public_key and self.discord_public_key.strip())
 
     @property
     def slack_enabled(self) -> bool:
-        return self.slack_signing_secret is not None
+        if self.slack_signing_secret is None:
+            return False
+        return bool(self.slack_signing_secret.get_secret_value().strip())
 
     @property
     def groq_enabled(self) -> bool:
-        return self.groq_api_key is not None
+        if self.groq_api_key is None:
+            return False
+        return bool(self.groq_api_key.get_secret_value().strip())
 
     def require_linear(self) -> None:
         """Raise if Linear credentials are missing (call before API use)."""
@@ -58,3 +64,10 @@ class Settings(BaseSettings):
             raise LinearError(
                 "LINEAR_API_KEY and LINEAR_TEAM_ID must be set as Worker secrets"
             )
+
+    @classmethod
+    def from_worker_bindings(cls, **values: Any) -> Settings:
+        """Build settings from Worker env only (ignore process/.env)."""
+        cleaned = {k: v for k, v in values.items() if v is not None}
+        # _env_file is a pydantic-settings init flag; not a model field.
+        return cls(_env_file=None, **cleaned)  # type: ignore[call-arg]
