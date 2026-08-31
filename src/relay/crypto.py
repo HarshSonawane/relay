@@ -1,7 +1,7 @@
 """Signature verification helpers.
 
-Discord uses Workers Web Crypto Ed25519 via the JS FFI.
-Slack uses stdlib HMAC-SHA256 (v0 signing scheme).
+Discord: pure-Python Ed25519 verify (Pyodide-safe; no Web Crypto FFI).
+Slack: stdlib HMAC-SHA256 (v0 signing scheme).
 """
 
 from __future__ import annotations
@@ -10,64 +10,16 @@ import hashlib
 import hmac
 import logging
 import time
-from typing import Any
 
+from relay._ed25519 import SignatureMismatch, checkvalid
 from relay.exceptions import SignatureError
 
 logger = logging.getLogger("relay.crypto")
 
 _SLACK_MAX_AGE_SECONDS = 60 * 5
 
-# JS verifier — keeps TypedArrays and Promises entirely on the JS side.
-_DISCORD_VERIFY_JS = """
-return (async () => {
-  const hexToU8 = (hex) => {
-    const clean = String(hex).trim().replace(/^0x/i, "");
-    if (clean.length % 2 !== 0) {
-      throw new Error("invalid hex length");
-    }
-    const out = new Uint8Array(clean.length / 2);
-    for (let i = 0; i < out.length; i++) {
-      out[i] = parseInt(clean.substr(i * 2, 2), 16);
-    }
-    return out;
-  };
 
-  const publicKey = hexToU8(publicKeyHex);
-  const signature = hexToU8(signatureHex);
-  const body = Uint8Array.from(bodyBytes);
-  const tsBytes = new TextEncoder().encode(String(timestamp));
-  const message = new Uint8Array(tsBytes.length + body.length);
-  message.set(tsBytes, 0);
-  message.set(body, tsBytes.length);
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    publicKey,
-    { name: "Ed25519" },
-    false,
-    ["verify"]
-  );
-  return await crypto.subtle.verify("Ed25519", key, signature, message);
-})()
-"""
-
-
-def _js_truthy(value: Any) -> bool:
-    """Convert a JS/Pyodide value to a real Python bool."""
-    if value is True or value is False:
-        return value
-    if value == True:  # noqa: E712 — JsProxy equality
-        return True
-    if value == False:  # noqa: E712
-        return False
-    to_py = getattr(value, "to_py", None)
-    if callable(to_py):
-        return bool(to_py())
-    return bool(value)
-
-
-async def verify_discord_ed25519(
+def verify_discord_ed25519(
     *,
     body: bytes,
     signature_hex: str,
@@ -77,40 +29,39 @@ async def verify_discord_ed25519(
     """Verify a Discord interaction signature.
 
     Raises SignatureError on failure.
+
+    Uses a pure-Python Ed25519 verifier (public-message safe) so we do not
+    depend on Pyodide Web Crypto FFI, which has been unreliable here.
     """
     if not signature_hex or not timestamp or not public_key_hex:
         raise SignatureError("Missing Discord signature headers or public key")
 
     try:
-        from js import Function  # type: ignore[import-not-found]
-    except ImportError:
+        public_key = bytes.fromhex(public_key_hex.strip().removeprefix("0x"))
+        signature = bytes.fromhex(signature_hex.strip().removeprefix("0x"))
+    except ValueError as exc:
+        raise SignatureError("Invalid Discord signature encoding") from exc
+
+    if len(public_key) != 32:
         raise SignatureError(
-            "Discord Ed25519 verification requires the Workers Web Crypto API"
-        ) from None
+            f"Discord public key must be 32 bytes (got {len(public_key)})"
+        )
+    if len(signature) != 64:
+        raise SignatureError(
+            f"Discord signature must be 64 bytes (got {len(signature)})"
+        )
+
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    message = timestamp.encode("utf-8") + body
 
     try:
-        # body as a plain list of ints — JS builds Uint8Array (avoids FFI buffer bugs)
-        verify = Function.new(
-            "publicKeyHex",
-            "signatureHex",
-            "timestamp",
-            "bodyBytes",
-            _DISCORD_VERIFY_JS,
-        )
-        result = await verify(
-            public_key_hex.strip(),
-            signature_hex.strip(),
-            timestamp,
-            list(body),
-        )
-    except SignatureError:
-        raise
-    except Exception as exc:
-        logger.warning("Discord signature verification error: %s", type(exc).__name__)
+        checkvalid(signature, message, public_key)
+    except SignatureMismatch as exc:
         raise SignatureError("Invalid Discord signature") from exc
-
-    if not _js_truthy(result):
-        raise SignatureError("Invalid Discord signature")
+    except ValueError as exc:
+        logger.warning("Discord signature decode error: %s", exc)
+        raise SignatureError("Invalid Discord signature") from exc
 
 
 def verify_slack_signature(

@@ -59,6 +59,10 @@ packages = ["relay"]
 module = ["workers.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["relay._ed25519"]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

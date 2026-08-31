@@ -18,6 +18,11 @@ async def health(settings: SettingsDep) -> dict[str, object]:
             "discord": settings.discord_enabled,
             "slack": settings.slack_enabled,
         },
+        "discord_public_key_bytes": (
+            len(settings.discord_public_key.strip()) // 2
+            if settings.discord_public_key
+            else 0
+        ),
         "linear": bool(settings.linear_api_key and settings.linear_team_id),
         "groq": settings.groq_enabled,
     }

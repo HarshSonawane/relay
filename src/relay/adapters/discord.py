@@ -47,7 +47,7 @@ class DiscordAdapter:
         # Discord expects HTTP 401 with empty body on bad signatures during
         # endpoint validation — return Response(401) rather than JSON detail.
         try:
-            await verify_discord_ed25519(
+            verify_discord_ed25519(
                 body=body,
                 signature_hex=signature,
                 timestamp=timestamp,
