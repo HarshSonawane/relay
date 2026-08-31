@@ -126,7 +126,7 @@ Usage:
 
 ```
 src/relay/
-  main.py           # create_app() + Workers ASGI entrypoint
+  main.py           # create_app() + ASGI helpers
   config.py         # pydantic-settings Settings
   deps.py           # FastAPI Depends (settings, Linear client)
   crypto.py         # Discord Ed25519 (Web Crypto) + Slack HMAC
@@ -134,6 +134,7 @@ src/relay/
   api/              # routers
   adapters/         # Discord + Slack (ChatAdapter protocol)
   linear/           # GraphQL issueCreate client
+src/main.py         # Cloudflare Workers entry (keeps `import relay` working)
 scripts/
   register_discord.py
 ```
