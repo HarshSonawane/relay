@@ -26,7 +26,7 @@ def _settings(**overrides: Any) -> Settings:
         "slack_signing_secret": SecretStr("slack_secret"),
     }
     data.update(overrides)
-    return Settings.model_validate(data)
+    return Settings.from_worker_bindings(**data)
 
 
 def _slack_sig(secret: str, timestamp: str, body: bytes) -> str:
@@ -145,4 +145,4 @@ def test_slack_empty_title() -> None:
 
     assert response.status_code == 200
     assert response.json()["response_type"] == "ephemeral"
-    assert "Title is required" in response.json()["text"]
+    assert "Usage:" in response.json()["text"]

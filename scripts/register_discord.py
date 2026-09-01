@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Register the Discord /issue slash command (run locally once).
+"""Register (or update) the Discord /issue slash command.
 
 Requires DISCORD_APPLICATION_ID and DISCORD_BOT_TOKEN in `.env`.
+
+Run again after changing options (project autocomplete, priority, etc.).
 """
 
 from __future__ import annotations
@@ -28,6 +30,25 @@ COMMAND = {
             "description": "Optional issue description",
             "type": 3,
             "required": False,
+        },
+        {
+            "name": "project",
+            "description": "Linear project (type to search)",
+            "type": 3,
+            "required": False,
+            "autocomplete": True,
+        },
+        {
+            "name": "priority",
+            "description": "Issue priority",
+            "type": 4,
+            "required": False,
+            "choices": [
+                {"name": "Urgent", "value": 1},
+                {"name": "High", "value": 2},
+                {"name": "Normal", "value": 3},
+                {"name": "Low", "value": 4},
+            ],
         },
     ],
 }
@@ -62,6 +83,7 @@ def main() -> int:
 
     data = response.json()
     print(f"Registered /{data.get('name')} (id={data.get('id')})")
+    print("Options: title, description, project (autocomplete), priority")
     return 0
 
 

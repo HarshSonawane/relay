@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, Request, Response
 
-from relay.adapters.base import CreatedIssue, IssueDraft
+from relay.adapters.base import CreatedIssue, IssueDraft, LinearProject
 from relay.adapters.registry import get_adapter
 from relay.deps import EnricherDep, LinearClientDep, SettingsDep
 from relay.exceptions import AdapterDisabledError, ValidationError
@@ -28,10 +28,24 @@ async def handle_hook(
     if adapter is None or not adapter.enabled(settings):
         raise AdapterDisabledError(f"Adapter '{provider}' is not enabled")
 
+    async def list_projects(query: str) -> list[LinearProject]:
+        return await linear.list_projects(query)
+
     async def create_issue(draft: IssueDraft) -> CreatedIssue:
         if not draft.title.strip():
             raise ValidationError("Title is required")
+        # Resolve project display name when Discord only sent the id.
+        if draft.project_id and not draft.project_name:
+            for project in await linear.list_projects(""):
+                if project.id == draft.project_id:
+                    draft = draft.model_copy(update={"project_name": project.name})
+                    break
         improved = await enricher.enrich(draft)
         return await linear.create_issue(improved)
 
-    return await adapter.handle(request, settings, create_issue=create_issue)
+    return await adapter.handle(
+        request,
+        settings,
+        create_issue=create_issue,
+        list_projects=list_projects,
+    )

@@ -9,6 +9,16 @@ from pydantic import BaseModel, Field
 
 from relay.config import Settings
 
+Priority = Literal[0, 1, 2, 3, 4]
+
+_PRIORITY_LABELS: dict[int, str] = {
+    0: "None",
+    1: "Urgent",
+    2: "High",
+    3: "Normal",
+    4: "Low",
+}
+
 
 class IssueDraft(BaseModel):
     """Normalized issue payload produced by a chat adapter."""
@@ -18,6 +28,9 @@ class IssueDraft(BaseModel):
     source: Literal["discord", "slack"]
     author: str
     channel: str | None = None
+    project_id: str | None = None
+    project_name: str | None = None
+    priority: Priority | None = None
 
     def linear_description(self) -> str:
         """Markdown description including provenance for Linear."""
@@ -30,6 +43,11 @@ class IssueDraft(BaseModel):
         parts.append(f"**Author:** {self.author}")
         if self.channel:
             parts.append(f"**Channel:** {self.channel}")
+        if self.project_name:
+            parts.append(f"**Project:** {self.project_name}")
+        if self.priority is not None:
+            label = _PRIORITY_LABELS.get(self.priority, str(self.priority))
+            parts.append(f"**Priority:** {label}")
         return "\n".join(parts)
 
 
@@ -40,10 +58,23 @@ class CreatedIssue(BaseModel):
     url: str
 
 
+class LinearProject(BaseModel):
+    """A Linear project available for selection."""
+
+    id: str
+    name: str
+
+
 class CreateIssueFn(Protocol):
     """Callable that creates a Linear issue from a draft."""
 
     async def __call__(self, draft: IssueDraft) -> CreatedIssue: ...
+
+
+class ListProjectsFn(Protocol):
+    """Callable that lists Linear projects for autocomplete."""
+
+    async def __call__(self, query: str) -> list[LinearProject]: ...
 
 
 class ChatAdapter(Protocol):
@@ -59,4 +90,5 @@ class ChatAdapter(Protocol):
         settings: Settings,
         *,
         create_issue: CreateIssueFn,
+        list_projects: ListProjectsFn,
     ) -> Response: ...

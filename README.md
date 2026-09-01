@@ -122,20 +122,28 @@ Wrangler prints a URL like `https://relay.<account>.workers.dev`.
 
 7. Invite the bot to your server (OAuth2 → `applications.commands` scope).
 
-Usage: `/issue title:Fix login description:users cannot SSO`
+Usage in Discord:
 
-## Connect Slack
-
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps).
-2. Add a Slash Command `/issue` with Request URL `https://<your-worker>/hooks/slack`.
-3. Copy **Signing Secret** → `SLACK_SIGNING_SECRET`.
-4. Install the app to your workspace.
-
-Usage:
-
+```text
+/issue
+  title: Fix login
+  description: users cannot SSO
+  project:  (type to search Linear projects)
+  priority: High
 ```
+
+Re-register after pulling this update:
+
+```bash
+uv run python scripts/register_discord.py
+```
+
+Usage in Slack:
+
+```text
 /issue Fix login
 /issue Fix login | users cannot SSO
+/issue Fix login | users cannot SSO | project:Mobile | priority:high
 ```
 
 ## Connect Linear

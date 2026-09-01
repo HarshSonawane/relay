@@ -3,18 +3,34 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from relay.adapters.base import CreateIssueFn, IssueDraft
+from relay.adapters.base import (
+    CreateIssueFn,
+    IssueDraft,
+    LinearProject,
+    ListProjectsFn,
+    Priority,
+)
 from relay.config import Settings
 from relay.crypto import verify_slack_signature
 from relay.exceptions import SignatureError, ValidationError
 
 logger = logging.getLogger("relay.adapters.slack")
+
+_PRIORITY_BY_NAME: dict[str, Priority] = {
+    "none": 0,
+    "urgent": 1,
+    "high": 2,
+    "normal": 3,
+    "medium": 3,
+    "low": 4,
+}
 
 
 class SlackAdapter:
@@ -31,6 +47,7 @@ class SlackAdapter:
         settings: Settings,
         *,
         create_issue: CreateIssueFn,
+        list_projects: ListProjectsFn,
     ) -> Response:
         body = await request.body()
         signature = request.headers.get("x-slack-signature", "")
@@ -48,7 +65,6 @@ class SlackAdapter:
 
         form = _parse_form(body)
 
-        # URL verification challenge (if ever pointed at Events API)
         if form.get("type") == ["url_verification"]:
             challenge = (form.get("challenge") or [""])[0]
             return PlainTextResponse(challenge)
@@ -63,6 +79,26 @@ class SlackAdapter:
                 }
             )
 
+        if draft.project_name and not draft.project_id:
+            try:
+                match = await _resolve_project(list_projects, draft.project_name)
+            except Exception:
+                logger.exception("Project resolve failed")
+                match = None
+            if match is None:
+                return JSONResponse(
+                    {
+                        "response_type": "ephemeral",
+                        "text": (
+                            f"No Linear project matching `{draft.project_name}`. "
+                            "Try a closer name."
+                        ),
+                    }
+                )
+            draft = draft.model_copy(
+                update={"project_id": match.id, "project_name": match.name}
+            )
+
         try:
             issue = await create_issue(draft)
         except Exception:
@@ -74,10 +110,18 @@ class SlackAdapter:
                 }
             )
 
+        extras: list[str] = []
+        if draft.project_name:
+            extras.append(f"project *{draft.project_name}*")
+        if draft.priority:
+            labels = {1: "Urgent", 2: "High", 3: "Normal", 4: "Low"}
+            extras.append(f"priority *{labels.get(draft.priority, draft.priority)}*")
+        suffix = f" ({', '.join(extras)})" if extras else ""
+
         return JSONResponse(
             {
                 "response_type": "in_channel",
-                "text": f"Created *{issue.identifier}* — {issue.url}",
+                "text": f"Created *{issue.identifier}* — {issue.url}{suffix}",
             }
         )
 
@@ -85,17 +129,30 @@ class SlackAdapter:
         text = (form.get("text") or [""])[0].strip()
         if not text:
             raise ValidationError(
-                "Title is required. Usage: `/issue Fix login` "
-                "or `/issue Fix login | users cannot SSO`"
+                "Usage: `/issue Fix login` or "
+                "`/issue Fix login | desc | project:Mobile | priority:high`"
             )
 
-        if "|" in text:
-            title_part, _, desc_part = text.partition("|")
-            title = title_part.strip()
-            description = desc_part.strip() or None
-        else:
-            title = text
-            description = None
+        parts = [p.strip() for p in text.split("|")]
+        title = parts[0]
+        description: str | None = None
+        project_name: str | None = None
+        priority: Priority | None = None
+
+        for part in parts[1:]:
+            keyed = _parse_keyed(part)
+            if keyed:
+                key, value = keyed
+                if key in {"project", "proj", "p"}:
+                    project_name = value
+                elif key in {"priority", "pri"}:
+                    priority = _parse_priority(value)
+                else:
+                    raise ValidationError(f"Unknown field `{key}`")
+            elif description is None:
+                description = part or None
+            else:
+                description = f"{description}\n{part}"
 
         if not title:
             raise ValidationError("Title is required.")
@@ -110,7 +167,41 @@ class SlackAdapter:
             source="slack",
             author=author,
             channel=channel,
+            project_name=project_name,
+            priority=priority,
         )
+
+
+def _parse_keyed(part: str) -> tuple[str, str] | None:
+    match = re.match(r"^([a-zA-Z]+)\s*:\s*(.+)$", part.strip())
+    if not match:
+        return None
+    return match.group(1).lower(), match.group(2).strip()
+
+
+def _parse_priority(raw: str) -> Priority:
+    key = raw.strip().lower()
+    if key in _PRIORITY_BY_NAME:
+        return _PRIORITY_BY_NAME[key]
+    if key.isdigit() and int(key) in (0, 1, 2, 3, 4):
+        return int(key)  # type: ignore[return-value]
+    raise ValidationError(
+        "Priority must be none, urgent, high, normal, or low"
+    )
+
+
+async def _resolve_project(
+    list_projects: ListProjectsFn,
+    name: str,
+) -> LinearProject | None:
+    projects = await list_projects(name)
+    if not projects:
+        return None
+    lowered = name.strip().lower()
+    for project in projects:
+        if project.name.lower() == lowered:
+            return project
+    return projects[0]
 
 
 def _parse_form(body: bytes) -> dict[str, list[str]]:
